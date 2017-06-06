@@ -201,16 +201,18 @@ void main() {
         expect(childThing.isDisposed, isTrue);
       });
 
-      test('should remove disposable from internal collection if disposed',
-          () async {
-        var disposable = new DisposeCounter();
+      test('should properly release child on child dispose', () async {
+        var parent = new DisposeCounter();
+        var child = new DisposeCounter();
+        parent.manageDisposable(child);
 
-        // Manage the disposable child and dispose of it independently
-        thing.manageDisposable(disposable);
-        await disposable.dispose();
-        await thing.dispose();
+        await child.dispose();
+        expect(parent.disposeCount, 0);
+        expect(child.disposeCount, 1);
 
-        expect(disposable.disposeCount, 1);
+        await parent.dispose();
+        expect(parent.disposeCount, 1);
+        expect(child.disposeCount, 1);
       });
 
       testManageMethod('manageDisposable',
@@ -247,12 +249,34 @@ void main() {
         expect(controller.isClosed, isTrue);
       });
 
-      test('should close a single-subscription stream when parent is disposed',
-          () async {
+      test(
+          'should complete normally for a broadcast stream with no '
+          'listeners that has been closed', () async {
+        var controller = new StreamController.broadcast();
+        thing.manageStreamController(controller);
+        await controller.close();
+        await thing.dispose();
+      });
+
+      test(
+          'should complete normally for a broadcast stream with a '
+          'listener that has been closed', () async {
+        var controller = new StreamController.broadcast();
+        var subscription =
+            controller.stream.listen(expectAsync1((_) {}, count: 0));
+        thing.manageStreamController(controller);
+        await controller.close();
+        await thing.dispose();
+        await subscription.cancel();
+      });
+
+      test(
+          'should close a single-subscription stream with a listener when '
+          'parent is disposed', () async {
         var controller = new StreamController();
         var subscription =
-            controller.stream.listen(expectAsync1(([_]) {}, count: 0));
-        subscription.onDone(expectAsync1(([_]) {}));
+            controller.stream.listen(expectAsync1((_) {}, count: 0));
+        subscription.onDone(expectAsync0(() {}));
         thing.manageStreamController(controller);
         expect(controller.isClosed, isFalse);
         await thing.dispose();

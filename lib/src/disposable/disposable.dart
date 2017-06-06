@@ -165,9 +165,10 @@ typedef Future<dynamic> Disposer();
 /// composition to include the [Disposable] machinery without changing
 /// the public interface of our class or polluting its lifecycle.
 class Disposable implements _Disposable, DisposableManagerV3 {
-  List<Future<dynamic>> _awaitableFutures = <Future<dynamic>>[];
-  Completer<Null> _didDispose = new Completer<Null>();
-  List<_Disposable> _internalDisposables = <_Disposable>[];
+  final List<Future<dynamic>> _awaitableFutures = <Future<dynamic>>[];
+  final Completer<Null> _didDispose = new Completer<Null>();
+  final List<_Disposable> _internalDisposables = <_Disposable>[];
+
   bool _isDisposing = false;
 
   /// A [Future] that will complete when this object has been disposed.
@@ -209,23 +210,24 @@ class Disposable implements _Disposable, DisposableManagerV3 {
     if (isDisposed) {
       return null;
     }
+    // TODO: This should short-circuit any repeat calls to dispose().
     if (_isDisposing) {
       return didDispose;
     }
     _isDisposing = true;
 
-    List<Future<dynamic>> futures = []
+    await Future.wait(_awaitableFutures);
+    _awaitableFutures.clear();
+
+    List<Future<Null>> disposeFutures = <Future<Null>>[]
       ..addAll(_internalDisposables.map((disposable) => disposable.dispose()))
       ..add(onDispose());
-    _internalDisposables = [];
-
-    futures.addAll(_awaitableFutures);
-    _awaitableFutures = [];
+    _internalDisposables.clear();
 
     // We need to filter out nulls because a subscription cancel
     // method is allowed to return a plain old null value.
     return Future
-        .wait(futures.where((future) => future != null))
+        .wait(disposeFutures.where((future) => future != null))
         .then(_completeDisposeFuture);
   }
 
@@ -315,6 +317,7 @@ class Disposable implements _Disposable, DisposableManagerV3 {
       }
       return controller.close();
     });
+    // TODO: Potential inefficiency - disposing will cause this future to complete, which will dispose again (which should be quick).
     controller.done.then((_) {
       isDone = true;
       _internalDisposables.remove(disposable);
